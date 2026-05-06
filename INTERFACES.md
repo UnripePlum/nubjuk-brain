@@ -43,10 +43,15 @@ class StiPipeline(ABC):
     async def cancel_session(self) -> None: ...           # idempotent
 ```
 
-권장 구현체:
-- `WhisperLlamaPipeline` — Phase 4 default (Whisper.cpp + llama.cpp grammar)
+원래 Phase 4 target architecture에서 고려했던 구현체:
+- `WhisperLlamaPipeline` — 초기 계획의 Whisper.cpp + llama.cpp grammar 구현체. 현재 기본값은 아니다.
 - `MockPipeline` — 테스트, 사전 정의된 결과 반환
 - (향후) `WhisperRulesPipeline` — Whisper + rule-based intent matching (SLM 없는 경량 변형)
+
+현재 구현체:
+- `MockPipeline` — MCU happy-path 검증용. 오디오 내용을 보지 않고 설정된 intent를 반환한다.
+- `MoonshineTinyKoRulesPipeline` — Moonshine tiny-ko ASR, brain-owned `IntentCatalog`, 선택적 Qwen SLM resolver를 연결한다.
+- `QwenSlmIntentResolver` — `llama-cli` subprocess로 Qwen 3.5 0.8B GGUF를 호출하고 catalog에 존재하는 intent id만 채택한다.
 
 ## `brain/brain/session.py` — Single-flight 매니저
 
@@ -67,7 +72,7 @@ class SessionManager:
         # asyncio.Lock으로 진입 시도. 이미 활성이면 False (busy 응답하라)
         ...
 
-    async def feed_audio(self, pcm: bytes) -> None: ...
+    async def feed_audio(self, frame: bytes) -> None: ...
     async def finish(self) -> StiResult: ...
     async def cancel(self) -> None: ...    # 어느 상태에서든 안전한 cleanup 보장
 ```
@@ -85,7 +90,9 @@ DONE | CANCELLED → IDLE  (cleanup 완료 후, lock released)
 **Cleanup 보장**:
 - 어느 종료 경로(DONE/CANCELLED)에서든 lock release + pipeline `cancel_session()` 호출
 - WS close 감지는 FastAPI의 `WebSocketDisconnect` 예외 catch
-- pipeline의 subprocess가 살아있으면 `terminate()` 후 timeout 후 `kill()`
+- 현재 Qwen SLM subprocess가 살아있으면 `terminate()` 후 1초 timeout 뒤 `kill()`
+
+현재 구현에서 `/sti` handler는 binary frame을 내부 `asyncio.Queue(maxsize=256)`에 `put_nowait()`로 빠르게 적재하고, 별도 worker task가 `SessionManager.feed_audio(frame)`을 호출한다. 내부 queue가 가득 차면 receive loop를 block하지 않고 brain이 `timeout` error를 반환한다. `SessionManager.feed_audio(frame)`은 protocol binary frame 전체를 받는다. 여기서 4-byte header (`seq_u16`, `flags`, `reserved`)를 파싱하고, payload PCM만 `StiPipeline.feed_audio(pcm)`으로 넘긴다. 예상 payload는 16kHz mono PCM 40ms, 즉 640 samples × 2 bytes = 1280 bytes다. 예상과 다른 길이는 `frame_warning`으로 로그만 남기며, 첫 bring-up 검증을 위해 즉시 실패시키지 않는다.
 
 ## 외부 계약 (잠금)
 

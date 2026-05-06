@@ -30,6 +30,23 @@ ESP가 Picovoice Rhino로 standalone 동작. brain은 미존재.
 
 **목표**: ESP가 brain을 primary로, Rhino를 fallback으로 사용. 자연어 자유도 향상.
 
+### 현재 구현 스냅샷 (2026-05-05)
+
+Phase 4 최종 계획 전체가 완료된 상태는 아니다. 현재 코드는 MCU 검증과 실음성 intent 검증을 위해 다음 범위까지 구현되어 있다.
+
+| 영역 | 현재 상태 |
+|------|-----------|
+| WS protocol | `docs/protocol/mcu-brain.md` 계약을 유지한다. 외부 message shape 변경 없음. |
+| Session | `SessionManager` 5-state 모델과 single-flight lock 사용. |
+| Pipeline | `BRAIN_PIPELINE=mock` 기본값, `BRAIN_PIPELINE=moonshine_tiny_ko` 실음성 경로 추가. |
+| ASR | Moonshine tiny-ko로 session_end 후 누적 PCM을 한 번에 transcription. |
+| SLM | Qwen 3.5 0.8B Q4_K_M GGUF를 `llama-cli` subprocess로 호출. timeout/error 시 catalog matcher로 fallback. |
+| Recipe | brain-owned `recipes/nubjuk_motion_catalog.json`, version `nubjuk-motion-2026-05-05.2`. |
+| Intent set | `idle`, `sit`, `stand`, `roll_left`, `roll_right`, `give_hand`, `surprise`. |
+| Voice test | `scripts/voice_test.sh`가 마이크 녹음 WAV를 MCU-style WS frame으로 `/sti`에 전송. |
+
+아래 항목들은 원래 Phase 4 target architecture다. 현재 구현과 다를 수 있으며, 실제 배포 기준은 `ARCHITECTURE.md`의 현재 구현 섹션을 먼저 본다.
+
 ### 디렉토리 스캐폴딩
 ```
 brain/
