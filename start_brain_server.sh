@@ -6,14 +6,30 @@ SESSION="${BRAIN_TMUX_SESSION:-nubjuk-brain}"
 LOG="${BRAIN_SERVER_LOG:-$ROOT/.tmp/brain-server.log}"
 PORT="${MOCK_BRAIN_PORT:-8080}"
 
-if ! command -v tmux >/dev/null 2>&1; then
+resolve_tmux_bin() {
+  if command -v tmux >/dev/null 2>&1; then
+    command -v tmux
+    return 0
+  fi
+  for candidate in "$HOME/.local/bin/tmux" "$HOME/bin/tmux"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+TMUX_BIN="${BRAIN_TMUX_BIN:-$(resolve_tmux_bin || true)}"
+
+if [ -z "$TMUX_BIN" ]; then
   echo "ERROR: tmux is required to start the brain server in the background." >&2
   exit 1
 fi
 
-if tmux has-session -t "$SESSION" 2>/dev/null; then
+if "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then
   echo "ERROR: tmux session '$SESSION' already exists." >&2
-  echo "Stop it with: tmux kill-session -t $SESSION" >&2
+  echo "Stop it with: $TMUX_BIN kill-session -t $SESSION" >&2
   exit 1
 fi
 
@@ -32,7 +48,7 @@ WS_QUEUE="${BRAIN_WS_MAX_QUEUE:-256}"
 WS_PROTOCOL="${BRAIN_WS_PROTOCOL:-websockets}"
 WS_SIZE="${BRAIN_WS_MAX_SIZE:-1048576}"
 
-tmux new-session -d -s "$SESSION" -c "$ROOT" \
+"$TMUX_BIN" new-session -d -s "$SESSION" -c "$ROOT" \
   "BRAIN_PIPELINE='$PIPELINE' INTENT_CATALOG_PATH='$CATALOG' BRAIN_WS_MAX_QUEUE='$WS_QUEUE' BRAIN_WS_PROTOCOL='$WS_PROTOCOL' BRAIN_WS_MAX_SIZE='$WS_SIZE' ./run_mock_brain.sh > '$LOG' 2>&1"
 
 for _ in {1..40}; do
@@ -41,7 +57,7 @@ for _ in {1..40}; do
     echo "session: $SESSION"
     echo "url: ws://0.0.0.0:$PORT/sti"
     echo "log: $LOG"
-    echo "stop: tmux kill-session -t $SESSION"
+    echo "stop: $TMUX_BIN kill-session -t $SESSION"
     if [ "${BRAIN_NO_TAIL:-0}" = "1" ]; then
       echo "tail logs: tail -f '$LOG'"
       exit 0
@@ -56,5 +72,5 @@ done
 echo "ERROR: brain server did not open TCP port $PORT." >&2
 echo "Last log lines:" >&2
 tail -40 "$LOG" >&2 || true
-tmux kill-session -t "$SESSION" 2>/dev/null || true
+"$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null || true
 exit 1
