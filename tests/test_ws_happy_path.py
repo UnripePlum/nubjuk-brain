@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from brain.config import MockBrainConfig
 from brain.pipeline.base import StiError
 from brain.pipeline.mock import MockPipeline
 from brain.session import EXPECTED_PCM_PAYLOAD_BYTES, SessionManager
+import brain.ws_server as ws_server
 from brain.ws_server import create_app
 
 
@@ -57,6 +62,22 @@ class FailingPipeline(MockPipeline):
         raise StiError("timeout", "mock timeout")
 
 
+class FailingFeedPipeline(MockPipeline):
+    async def feed_audio(self, pcm: bytes) -> None:
+        raise StiError("timeout", "feed timeout")
+
+
+class SlowFeedPipeline(MockPipeline):
+    async def feed_audio(self, pcm: bytes) -> None:
+        await asyncio.sleep(0.001)
+        await super().feed_audio(pcm)
+
+
+class BlockingFeedPipeline(MockPipeline):
+    async def feed_audio(self, pcm: bytes) -> None:
+        await asyncio.Event().wait()
+
+
 def test_ws_happy_path_returns_roll_right_and_closes() -> None:
     with TestClient(create_app(MockBrainConfig())) as client:
         with client.websocket_connect("/sti") as ws:
@@ -75,6 +96,102 @@ def test_ws_happy_path_returns_roll_right_and_closes() -> None:
             assert intent["correlation_id"] == "happy"
             assert intent["payload"]["intent"] == "roll_right"
             assert intent["payload"]["confidence"] == 0.92
+
+
+def test_ws_drains_audio_queue_before_session_finish() -> None:
+    pipeline = SlowFeedPipeline(MockBrainConfig())
+    with TestClient(create_app(MockBrainConfig())) as client:
+        client.app.state.manager = SessionManager(pipeline)
+        with client.websocket_connect("/sti") as ws:
+            ws.send_json(start_message("queued-audio"))
+            assert ws.receive_json()["type"] == "session_ack"
+            for seq in range(12):
+                ws.send_bytes(frame(seq))
+            ws.send_json(end_message("queued-audio", frames=12))
+
+            intent = ws.receive_json()
+            assert intent["type"] == "intent"
+
+    assert pipeline.audio_bytes == 12 * EXPECTED_PCM_PAYLOAD_BYTES
+
+
+def test_ws_audio_worker_error_returns_error_and_releases_lock() -> None:
+    with TestClient(create_app(MockBrainConfig())) as client:
+        client.app.state.manager = SessionManager(FailingFeedPipeline(MockBrainConfig()))
+
+        with client.websocket_connect("/sti") as ws:
+            ws.send_json(start_message("feed-error"))
+            assert ws.receive_json()["type"] == "session_ack"
+            ws.send_bytes(frame(0))
+            ws.send_json(end_message("feed-error", frames=1))
+            error = ws.receive_json()
+            assert error["type"] == "error"
+            assert error["correlation_id"] == "feed-error"
+            assert error["payload"]["code"] == "timeout"
+
+        client.app.state.manager = SessionManager(MockPipeline(MockBrainConfig()))
+        with client.websocket_connect("/sti") as next_ws:
+            next_ws.send_json(start_message("after-feed-error"))
+            assert next_ws.receive_json()["type"] == "session_ack"
+
+
+def test_ws_audio_queue_full_returns_error_without_blocking(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ws_server, "WS_AUDIO_QUEUE_MAXSIZE", 1)
+    with TestClient(create_app(MockBrainConfig())) as client:
+        client.app.state.manager = SessionManager(BlockingFeedPipeline(MockBrainConfig()))
+
+        with client.websocket_connect("/sti") as ws:
+            ws.send_json(start_message("queue-full"))
+            assert ws.receive_json()["type"] == "session_ack"
+            ws.send_bytes(frame(0))
+            ws.send_bytes(frame(1))
+            ws.send_bytes(frame(2))
+
+            error = ws.receive_json()
+            assert error["type"] == "error"
+            assert error["correlation_id"] == "queue-full"
+            assert error["payload"]["code"] == "timeout"
+            assert "audio queue full" in error["payload"]["message"]
+
+        client.app.state.manager = SessionManager(MockPipeline(MockBrainConfig()))
+        with client.websocket_connect("/sti") as next_ws:
+            next_ws.send_json(start_message("after-queue-full"))
+            assert next_ws.receive_json()["type"] == "session_ack"
+
+
+def test_ws_logs_intent_send(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
+    audio_frame = frame(0, flags=1)
+    with TestClient(create_app(MockBrainConfig())) as client:
+        with client.websocket_connect("/sti") as ws:
+            ws.send_json(start_message("send-log"))
+            assert ws.receive_json()["type"] == "session_ack"
+            ws.send_bytes(audio_frame)
+            ws.send_json(end_message("send-log", frames=1))
+            assert ws.receive_json()["type"] == "intent"
+
+    payloads = []
+    for record in caplog.records:
+        try:
+            payloads.append(json.loads(record.message))
+        except json.JSONDecodeError:
+            pass
+    connection = next(payload for payload in payloads if payload.get("event") == "ws_connection_accepted")
+    assert connection["ws_audio_queue_maxsize"] == ws_server.WS_AUDIO_QUEUE_MAXSIZE
+    audio_enqueued = next(payload for payload in payloads if payload.get("event") == "audio_frame_enqueued")
+    assert audio_enqueued["correlation_id"] == "send-log"
+    assert audio_enqueued["frames_received"] == 1
+    assert audio_enqueued["seq"] == 0
+    assert audio_enqueued["wire_bytes"] == len(audio_frame)
+    worker_feed = next(payload for payload in payloads if payload.get("event") == "audio_worker_feed")
+    assert worker_feed["correlation_id"] == "send-log"
+    assert worker_feed["frames_processed"] == 1
+    assert worker_feed["seq"] == 0
+    intent_send = next(payload for payload in payloads if payload.get("event") == "intent_send")
+    assert intent_send["correlation_id"] == "send-log"
+    assert intent_send["intent"] == "roll_right"
+    assert intent_send["confidence"] == 0.92
+    assert intent_send["raw_text"] == "mock: roll_right"
 
 
 def test_ws_schema_invalid_is_recoverable_before_start() -> None:

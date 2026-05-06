@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SESSION="${BRAIN_TMUX_SESSION:-nubjuk-brain}"
+LOG="${BRAIN_SERVER_LOG:-$ROOT/.tmp/brain-server.log}"
+PORT="${MOCK_BRAIN_PORT:-8080}"
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "ERROR: tmux is required to start the brain server in the background." >&2
+  exit 1
+fi
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  echo "ERROR: tmux session '$SESSION' already exists." >&2
+  echo "Stop it with: tmux kill-session -t $SESSION" >&2
+  exit 1
+fi
+
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "ERROR: TCP port $PORT is already in use." >&2
+  lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >&2
+  exit 1
+fi
+
+mkdir -p "$(dirname "$LOG")"
+rm -f "$LOG"
+
+PIPELINE="${BRAIN_PIPELINE:-moonshine_tiny_ko}"
+CATALOG="${INTENT_CATALOG_PATH:-recipes/nubjuk_motion_catalog.json}"
+WS_QUEUE="${BRAIN_WS_MAX_QUEUE:-256}"
+WS_PROTOCOL="${BRAIN_WS_PROTOCOL:-websockets}"
+WS_SIZE="${BRAIN_WS_MAX_SIZE:-1048576}"
+
+tmux new-session -d -s "$SESSION" -c "$ROOT" \
+  "BRAIN_PIPELINE='$PIPELINE' INTENT_CATALOG_PATH='$CATALOG' BRAIN_WS_MAX_QUEUE='$WS_QUEUE' BRAIN_WS_PROTOCOL='$WS_PROTOCOL' BRAIN_WS_MAX_SIZE='$WS_SIZE' ./run_mock_brain.sh > '$LOG' 2>&1"
+
+for _ in {1..40}; do
+  if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "brain server started"
+    echo "session: $SESSION"
+    echo "url: ws://0.0.0.0:$PORT/sti"
+    echo "log: $LOG"
+    echo "stop: tmux kill-session -t $SESSION"
+    if [ "${BRAIN_NO_TAIL:-0}" = "1" ]; then
+      echo "tail logs: tail -f '$LOG'"
+      exit 0
+    fi
+    echo "showing logs; press Ctrl-C to stop viewing logs, server keeps running"
+    tail -n +1 -f "$LOG"
+    exit 0
+  fi
+  sleep 0.25
+done
+
+echo "ERROR: brain server did not open TCP port $PORT." >&2
+echo "Last log lines:" >&2
+tail -40 "$LOG" >&2 || true
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+exit 1

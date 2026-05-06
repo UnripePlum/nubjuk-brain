@@ -1,0 +1,144 @@
+{
+  "catalog_version": "2026-05-06.4",
+  "intents": [
+    {
+      "id": "idle",
+      "aliases": [
+        "가만히",
+        "가만히 있어",
+        "멈춰",
+        "대기",
+        "기다려",
+        "idle",
+        "stay"
+      ],
+      "description": "Return to or hold the idle pose.",
+      "confidence": 0.86,
+      "exact_confidence": 0.94,
+      "phonetic_confidence": 0.72
+    },
+    {
+      "id": "sit",
+      "aliases": [
+        "앉아",
+        "앉아라",
+        "앉으세요",
+        "앉자",
+        "앉아줘",
+        "안 자",
+        "sit"
+      ],
+      "asr_noise": [
+        "인자",
+        "환자",
+        "아니다"
+      ],
+      "description": "Move into a sitting pose.",
+      "confidence": 0.86,
+      "exact_confidence": 0.94,
+      "phonetic_confidence": 0.72
+    },
+    {
+      "id": "stand",
+      "aliases": [
+        "일어서",
+        "일어서라",
+        "일어서 줘",
+        "일어나",
+        "일어나라",
+        "일어나세요",
+        "일어나 주세요",
+        "stand up",
+        "stand"
+      ],
+      "description": "Move into a standing pose.",
+      "confidence": 0.86,
+      "exact_confidence": 0.94,
+      "phonetic_confidence": 0.72
+    },
+    {
+      "id": "roll_left",
+      "aliases": [
+        "왼쪽",
+        "왼쪽으로",
+        "좌회전",
+        "좌측",
+        "왼쪽 굴러",
+        "왼쪽으로 굴러",
+        "좌로 굴러",
+        "왼쪽 돌아",
+        "왼쪽으로 돌아",
+        "roll left",
+        "role left",
+        "left"
+      ],
+      "asr_noise": [
+        "잘 어울려",
+        "잘 어글러"
+      ],
+      "description": "Roll body to the left.",
+      "confidence": 0.86,
+      "exact_confidence": 0.94,
+      "phonetic_confidence": 0.72
+    },
+    {
+      "id": "roll_right",
+      "aliases": [
+        "오른쪽",
+        "오른쪽으로",
+        "우회전",
+        "우측",
+        "우로",
+        "우로 굴러",
+        "우로 돌아",
+        "오른쪽 굴러",
+        "오른쪽으로 굴러",
+        "오른쪽 돌아",
+        "오른쪽으로 돌아",
+        "우러글라",
+        "울어 굴러",
+        "roll right",
+        "role right",
+        "right"
+      ],
+      "description": "Roll body to the right.",
+      "confidence": 0.86,
+      "exact_confidence": 0.94,
+      "phonetic_confidence": 0.72
+    },
+    {
+      "id": "give_hand",
+      "aliases": [
+        "손",
+        "손 줘",
+        "손 주세요",
+        "손 내밀어",
+        "악수",
+        "악수해",
+        "hand",
+        "give hand"
+      ],
+      "description": "Give a hand for a handshake.",
+      "confidence": 0.86,
+      "exact_confidence": 0.94,
+      "phonetic_confidence": 0.72
+    },
+    {
+      "id": "surprise",
+      "aliases": [
+        "어흥",
+        "왁",
+        "와악",
+        "으악",
+        "꺄",
+        "까꿍",
+        "서프라이즈",
+        "surprise"
+      ],
+      "description": "Play a startled reaction to a user's surprise sound.",
+      "confidence": 0.86,
+      "exact_confidence": 0.94,
+      "phonetic_confidence": 0.72
+    }
+  ]
+}

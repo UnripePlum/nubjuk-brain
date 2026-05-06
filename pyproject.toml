@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "nubjuk-brain"
 version = "0.1.0"
-description = "P1 MCU verification mock brain for nubjuk"
+description = "STI WebSocket brain for Nubjuk voice intent resolution"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1.0",
@@ -18,6 +18,12 @@ dev = [
   "httpx>=0.28,<1.0",
   "pytest>=8.0,<9.0",
 ]
+moonshine = [
+  "moonshine-voice>=0.0.59,<0.1",
+]
+voice-test = [
+  "sounddevice>=0.5,<1.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -25,3 +31,6 @@ pythonpath = ["."]
 
 [tool.hatch.build.targets.wheel]
 packages = ["brain"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"brain/intent/default_catalog.json" = "brain/intent/default_catalog.json"
