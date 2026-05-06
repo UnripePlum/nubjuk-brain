@@ -103,9 +103,9 @@ apply_wpa2() {
   nmcli con modify "$CON_NAME" \
     wifi-sec.key-mgmt wpa-psk \
     802-11-wireless-security.pmf 0 \
-    802-11-wireless-security.proto "" \
-    802-11-wireless-security.pairwise "" \
-    802-11-wireless-security.group ""
+    802-11-wireless-security.proto rsn \
+    802-11-wireless-security.pairwise ccmp \
+    802-11-wireless-security.group ccmp
 }
 
 restart_hotspot() {

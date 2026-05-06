@@ -50,6 +50,9 @@ nmcli con modify "$CON_NAME" \
   ipv4.addresses "$ADDRESS" \
   ipv6.method disabled \
   wifi-sec.key-mgmt wpa-psk \
+  802-11-wireless-security.proto rsn \
+  802-11-wireless-security.pairwise ccmp \
+  802-11-wireless-security.group ccmp \
   wifi-sec.psk "$PASSWORD"
 
 nmcli con up "$CON_NAME"
