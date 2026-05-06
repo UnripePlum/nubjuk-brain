@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SESSION="${BRAIN_TMUX_SESSION:-nubjuk-brain}"
 LOG="${BRAIN_SERVER_LOG:-$ROOT/.tmp/brain-server.log}"
 PORT="${MOCK_BRAIN_PORT:-8080}"
+START_TIMEOUT_SECONDS="${BRAIN_START_TIMEOUT_SECONDS:-120}"
 
 resolve_tmux_bin() {
   if command -v tmux >/dev/null 2>&1; then
@@ -51,7 +52,7 @@ WS_SIZE="${BRAIN_WS_MAX_SIZE:-1048576}"
 "$TMUX_BIN" new-session -d -s "$SESSION" -c "$ROOT" \
   "BRAIN_PIPELINE='$PIPELINE' INTENT_CATALOG_PATH='$CATALOG' BRAIN_WS_MAX_QUEUE='$WS_QUEUE' BRAIN_WS_PROTOCOL='$WS_PROTOCOL' BRAIN_WS_MAX_SIZE='$WS_SIZE' ./run_mock_brain.sh > '$LOG' 2>&1"
 
-for _ in {1..40}; do
+for ((attempt = 1; attempt <= START_TIMEOUT_SECONDS; attempt++)); do
   if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "brain server started"
     echo "session: $SESSION"
@@ -66,10 +67,10 @@ for _ in {1..40}; do
     tail -n +1 -f "$LOG"
     exit 0
   fi
-  sleep 0.25
+  sleep 1
 done
 
-echo "ERROR: brain server did not open TCP port $PORT." >&2
+echo "ERROR: brain server did not open TCP port $PORT within ${START_TIMEOUT_SECONDS}s." >&2
 echo "Last log lines:" >&2
 tail -40 "$LOG" >&2 || true
 "$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null || true
