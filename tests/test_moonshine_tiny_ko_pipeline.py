@@ -44,8 +44,10 @@ class FakeIntentResolver:
     intent: str
     slm_ms: int = 23
     cancelled: bool = False
+    calls: int = 0
 
     async def resolve(self, raw_text: str, catalog: IntentCatalog) -> SlmIntentDecision:
+        self.calls += 1
         return SlmIntentDecision(intent=self.intent, raw_output=self.intent, slm_ms=self.slm_ms)
 
     async def cancel(self) -> None:
@@ -145,7 +147,11 @@ def test_moonshine_pipeline_uses_slm_intent_when_enabled() -> None:
     async def run() -> None:
         resolver = FakeIntentResolver("roll_left")
         pipeline = MoonshineTinyKoRulesPipeline(
-            MoonshineTinyKoConfig(slm_enabled=True, slm_confidence=0.78),
+            MoonshineTinyKoConfig(
+                slm_enabled=True,
+                slm_confidence=0.78,
+                slm_min_catalog_confidence=0.73,
+            ),
             transcriber=FakeTranscriber("좌로 글로"),
             intent_resolver=resolver,
         )
@@ -156,6 +162,7 @@ def test_moonshine_pipeline_uses_slm_intent_when_enabled() -> None:
         assert result.confidence == 0.78
         assert result.slm_ms == 23
         await pipeline.cancel_session()
+        assert resolver.calls == 1
         assert resolver.cancelled is True
 
     asyncio.run(run())
@@ -164,7 +171,11 @@ def test_moonshine_pipeline_uses_slm_intent_when_enabled() -> None:
 def test_moonshine_pipeline_keeps_high_confidence_catalog_match_over_slm() -> None:
     async def run() -> None:
         pipeline = MoonshineTinyKoRulesPipeline(
-            MoonshineTinyKoConfig(slm_enabled=True, slm_confidence=0.78),
+            MoonshineTinyKoConfig(
+                slm_enabled=True,
+                slm_confidence=0.78,
+                slm_min_catalog_confidence=1.0,
+            ),
             transcriber=FakeTranscriber("울어 굴러"),
             intent_resolver=FakeIntentResolver("roll_left"),
         )
@@ -182,7 +193,7 @@ def test_moonshine_pipeline_keeps_high_confidence_catalog_match_over_slm() -> No
 def test_moonshine_pipeline_falls_back_to_catalog_when_slm_returns_unknown() -> None:
     async def run() -> None:
         pipeline = MoonshineTinyKoRulesPipeline(
-            MoonshineTinyKoConfig(slm_enabled=True),
+            MoonshineTinyKoConfig(slm_enabled=True, slm_min_catalog_confidence=0.73),
             transcriber=FakeTranscriber("좌로 글로"),
             intent_resolver=FakeIntentResolver("unknown"),
         )
@@ -200,7 +211,11 @@ def test_moonshine_pipeline_falls_back_to_catalog_when_slm_returns_unknown() -> 
 def test_moonshine_pipeline_keeps_phonetic_catalog_match_over_wrong_slm() -> None:
     async def run() -> None:
         pipeline = MoonshineTinyKoRulesPipeline(
-            MoonshineTinyKoConfig(slm_enabled=True, slm_confidence=0.78),
+            MoonshineTinyKoConfig(
+                slm_enabled=True,
+                slm_confidence=0.78,
+                slm_min_catalog_confidence=0.73,
+            ),
             transcriber=FakeTranscriber("은자"),
             intent_resolver=FakeIntentResolver("idle"),
         )
@@ -218,7 +233,11 @@ def test_moonshine_pipeline_keeps_phonetic_catalog_match_over_wrong_slm() -> Non
 def test_moonshine_pipeline_keeps_observed_asr_noise_over_wrong_slm() -> None:
     async def run() -> None:
         pipeline = MoonshineTinyKoRulesPipeline(
-            MoonshineTinyKoConfig(slm_enabled=True, slm_confidence=0.78),
+            MoonshineTinyKoConfig(
+                slm_enabled=True,
+                slm_confidence=0.78,
+                slm_min_catalog_confidence=0.87,
+            ),
             transcriber=FakeTranscriber("인자"),
             intent_resolver=FakeIntentResolver("idle"),
         )
@@ -233,10 +252,35 @@ def test_moonshine_pipeline_keeps_observed_asr_noise_over_wrong_slm() -> None:
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("text", ["아니 인자", "안 져."])
+def test_moonshine_pipeline_skips_slm_for_realtime_sit_match(text: str) -> None:
+    async def run() -> None:
+        resolver = FakeIntentResolver("idle")
+        pipeline = MoonshineTinyKoRulesPipeline(
+            MoonshineTinyKoConfig(slm_enabled=True, slm_confidence=0.78),
+            transcriber=FakeTranscriber(text),
+            intent_resolver=resolver,
+        )
+        await pipeline.start_session(opts())
+        await pipeline.feed_audio(b"\x00\x00" * 160)
+        result = await pipeline.finish_session()
+        assert result.intent == "sit"
+        assert result.confidence == 0.72
+        assert result.slm_ms == 0
+        await pipeline.cancel_session()
+        assert resolver.calls == 0
+
+    asyncio.run(run())
+
+
 def test_moonshine_pipeline_keeps_roll_left_noise_over_wrong_slm() -> None:
     async def run() -> None:
         pipeline = MoonshineTinyKoRulesPipeline(
-            MoonshineTinyKoConfig(slm_enabled=True, slm_confidence=0.78),
+            MoonshineTinyKoConfig(
+                slm_enabled=True,
+                slm_confidence=0.78,
+                slm_min_catalog_confidence=0.87,
+            ),
             transcriber=FakeTranscriber("잘 어울려."),
             intent_resolver=FakeIntentResolver("roll_right"),
         )
@@ -251,38 +295,42 @@ def test_moonshine_pipeline_keeps_roll_left_noise_over_wrong_slm() -> None:
     asyncio.run(run())
 
 
-def test_moonshine_pipeline_rejects_slm_idle_for_unknown_transcript() -> None:
+def test_moonshine_pipeline_skips_slm_for_unknown_transcript() -> None:
     async def run() -> None:
+        resolver = FakeIntentResolver("idle")
         pipeline = MoonshineTinyKoRulesPipeline(
             MoonshineTinyKoConfig(slm_enabled=True, unknown_confidence=0.2, slm_confidence=0.78),
             transcriber=FakeTranscriber("전혀 모름"),
-            intent_resolver=FakeIntentResolver("idle"),
+            intent_resolver=resolver,
         )
         await pipeline.start_session(opts())
         await pipeline.feed_audio(b"\x00\x00" * 160)
         result = await pipeline.finish_session()
         assert result.intent == "unknown"
         assert result.confidence == 0.2
-        assert result.slm_ms == 23
+        assert result.slm_ms == 0
         await pipeline.cancel_session()
+        assert resolver.calls == 0
 
     asyncio.run(run())
 
 
-def test_moonshine_pipeline_rejects_slm_motion_for_unknown_transcript() -> None:
+def test_moonshine_pipeline_skips_slm_motion_for_unknown_transcript() -> None:
     async def run() -> None:
+        resolver = FakeIntentResolver("roll_right")
         pipeline = MoonshineTinyKoRulesPipeline(
             MoonshineTinyKoConfig(slm_enabled=True, unknown_confidence=0.2, slm_confidence=0.78),
             transcriber=FakeTranscriber("전혀 모름"),
-            intent_resolver=FakeIntentResolver("roll_right"),
+            intent_resolver=resolver,
         )
         await pipeline.start_session(opts())
         await pipeline.feed_audio(b"\x00\x00" * 160)
         result = await pipeline.finish_session()
         assert result.intent == "unknown"
         assert result.confidence == 0.2
-        assert result.slm_ms == 23
+        assert result.slm_ms == 0
         await pipeline.cancel_session()
+        assert resolver.calls == 0
 
     asyncio.run(run())
 

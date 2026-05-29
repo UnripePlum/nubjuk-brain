@@ -23,6 +23,7 @@ def test_config_loads_moonshine_tiny_ko_from_env(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("LLAMA_CLI", "/tmp/llama-cli")
     monkeypatch.setenv("QWEN35_MODEL_PATH", "/tmp/qwen.gguf")
     monkeypatch.setenv("BRAIN_SLM_TIMEOUT_MS", "7000")
+    monkeypatch.setenv("BRAIN_SLM_MIN_CATALOG_CONFIDENCE", "0.86")
     config = load_config_from_env()
     assert isinstance(config, MoonshineTinyKoConfig)
     assert config.pipeline == "moonshine_tiny_ko"
@@ -34,6 +35,7 @@ def test_config_loads_moonshine_tiny_ko_from_env(monkeypatch: pytest.MonkeyPatch
     assert config.slm_llama_cli == "/tmp/llama-cli"
     assert config.slm_model_path == "/tmp/qwen.gguf"
     assert config.slm_timeout_ms == 7000
+    assert config.slm_min_catalog_confidence == 0.86
 
 
 def test_config_rejects_unknown_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,3 +60,8 @@ def test_config_rejects_invalid_slm_enabled(monkeypatch: pytest.MonkeyPatch) -> 
 def test_moonshine_config_rejects_invalid_slm_timeout() -> None:
     with pytest.raises(ValueError, match="slm_timeout_ms"):
         MoonshineTinyKoConfig(slm_timeout_ms=0)
+
+
+def test_moonshine_config_rejects_invalid_slm_min_catalog_confidence() -> None:
+    with pytest.raises(ValueError, match="slm_min_catalog_confidence"):
+        MoonshineTinyKoConfig(slm_min_catalog_confidence=1.1)

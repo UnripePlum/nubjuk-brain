@@ -50,6 +50,7 @@ class MoonshineTinyKoConfig:
     slm_model_path: str = DEFAULT_QWEN35_MODEL_PATH
     slm_timeout_ms: int = 5000
     slm_confidence: float = 0.78
+    slm_min_catalog_confidence: float = 0.72
     slm_max_tokens: int = 16
     slm_context_size: int = 2048
     server_version: str = "0.1.0"
@@ -69,6 +70,8 @@ class MoonshineTinyKoConfig:
             raise ValueError("slm_timeout_ms must be positive")
         if not 0 <= self.slm_confidence <= 1:
             raise ValueError("slm_confidence must be between 0 and 1")
+        if not 0 <= self.slm_min_catalog_confidence <= 1:
+            raise ValueError("slm_min_catalog_confidence must be between 0 and 1")
         if self.slm_max_tokens <= 0:
             raise ValueError("slm_max_tokens must be positive")
         if self.slm_context_size <= 0:
@@ -95,6 +98,10 @@ class MoonshineTinyKoConfig:
             slm_model_path=os.getenv("QWEN35_MODEL_PATH", cls.slm_model_path),
             slm_timeout_ms=_int_from_env("BRAIN_SLM_TIMEOUT_MS", cls.slm_timeout_ms),
             slm_confidence=_float_from_env("BRAIN_SLM_CONFIDENCE", cls.slm_confidence),
+            slm_min_catalog_confidence=_float_from_env(
+                "BRAIN_SLM_MIN_CATALOG_CONFIDENCE",
+                cls.slm_min_catalog_confidence,
+            ),
             slm_max_tokens=_int_from_env("BRAIN_SLM_MAX_TOKENS", cls.slm_max_tokens),
             slm_context_size=_int_from_env("BRAIN_SLM_CONTEXT_SIZE", cls.slm_context_size),
         )

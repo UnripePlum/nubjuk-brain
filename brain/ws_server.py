@@ -438,13 +438,16 @@ async def _finish_session_or_cancel_on_error(
     try:
         return await finish_task
     except asyncio.CancelledError:
+        await manager.cancel("finish_cancelled")
         return None
     except StiError:
         await manager.cancel("pipeline_error")
         raise
     finally:
         disconnect_task.cancel()
-        disconnect_task.add_done_callback(_discard_task_result)
+        with suppress(asyncio.CancelledError):
+            await disconnect_task
+        _discard_task_result(disconnect_task)
 
 
 async def _cancel_finish_on_disconnect(

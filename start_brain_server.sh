@@ -21,16 +21,35 @@ resolve_tmux_bin() {
   return 1
 }
 
+resolve_tmux_term() {
+  if [ -n "${BRAIN_TMUX_TERM:-}" ]; then
+    echo "$BRAIN_TMUX_TERM"
+    return 0
+  fi
+  if command -v infocmp >/dev/null 2>&1; then
+    if [ -n "${TERM:-}" ] && infocmp "$TERM" >/dev/null 2>&1; then
+      echo "$TERM"
+      return 0
+    fi
+    if infocmp xterm-256color >/dev/null 2>&1; then
+      echo "xterm-256color"
+      return 0
+    fi
+  fi
+  echo "${TERM:-dumb}"
+}
+
 TMUX_BIN="${BRAIN_TMUX_BIN:-$(resolve_tmux_bin || true)}"
+TMUX_TERM="$(resolve_tmux_term)"
 
 if [ -z "$TMUX_BIN" ]; then
   echo "ERROR: tmux is required to start the brain server in the background." >&2
   exit 1
 fi
 
-if "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then
+if TERM="$TMUX_TERM" "$TMUX_BIN" has-session -t "$SESSION" 2>/dev/null; then
   echo "ERROR: tmux session '$SESSION' already exists." >&2
-  echo "Stop it with: $TMUX_BIN kill-session -t $SESSION" >&2
+  echo "Stop it with: TERM=$TMUX_TERM $TMUX_BIN kill-session -t $SESSION" >&2
   exit 1
 fi
 
@@ -48,9 +67,23 @@ CATALOG="${INTENT_CATALOG_PATH:-recipes/nubjuk_motion_catalog.json}"
 WS_QUEUE="${BRAIN_WS_MAX_QUEUE:-256}"
 WS_PROTOCOL="${BRAIN_WS_PROTOCOL:-websockets}"
 WS_SIZE="${BRAIN_WS_MAX_SIZE:-1048576}"
+SLM_ENV=""
+for name in \
+  BRAIN_SLM_ENABLED \
+  BRAIN_SLM_TIMEOUT_MS \
+  BRAIN_SLM_CONFIDENCE \
+  BRAIN_SLM_MIN_CATALOG_CONFIDENCE \
+  BRAIN_SLM_MAX_TOKENS \
+  BRAIN_SLM_CONTEXT_SIZE \
+  LLAMA_CLI \
+  QWEN35_MODEL_PATH; do
+  if [ -n "${!name+x}" ]; then
+    SLM_ENV="$SLM_ENV $name='${!name}'"
+  fi
+done
 
-"$TMUX_BIN" new-session -d -s "$SESSION" -c "$ROOT" \
-  "BRAIN_PIPELINE='$PIPELINE' INTENT_CATALOG_PATH='$CATALOG' BRAIN_WS_MAX_QUEUE='$WS_QUEUE' BRAIN_WS_PROTOCOL='$WS_PROTOCOL' BRAIN_WS_MAX_SIZE='$WS_SIZE' ./run_mock_brain.sh > '$LOG' 2>&1"
+TERM="$TMUX_TERM" "$TMUX_BIN" new-session -d -s "$SESSION" -c "$ROOT" \
+  "BRAIN_PIPELINE='$PIPELINE' INTENT_CATALOG_PATH='$CATALOG' BRAIN_WS_MAX_QUEUE='$WS_QUEUE' BRAIN_WS_PROTOCOL='$WS_PROTOCOL' BRAIN_WS_MAX_SIZE='$WS_SIZE'$SLM_ENV ./run_mock_brain.sh > '$LOG' 2>&1"
 
 for ((attempt = 1; attempt <= START_TIMEOUT_SECONDS; attempt++)); do
   if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -58,7 +91,7 @@ for ((attempt = 1; attempt <= START_TIMEOUT_SECONDS; attempt++)); do
     echo "session: $SESSION"
     echo "url: ws://0.0.0.0:$PORT/sti"
     echo "log: $LOG"
-    echo "stop: $TMUX_BIN kill-session -t $SESSION"
+    echo "stop: TERM=$TMUX_TERM $TMUX_BIN kill-session -t $SESSION"
     if [ "${BRAIN_NO_TAIL:-0}" = "1" ]; then
       echo "tail logs: tail -f '$LOG'"
       exit 0
@@ -73,5 +106,5 @@ done
 echo "ERROR: brain server did not open TCP port $PORT within ${START_TIMEOUT_SECONDS}s." >&2
 echo "Last log lines:" >&2
 tail -40 "$LOG" >&2 || true
-"$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null || true
+TERM="$TMUX_TERM" "$TMUX_BIN" kill-session -t "$SESSION" 2>/dev/null || true
 exit 1

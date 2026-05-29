@@ -143,7 +143,8 @@ class MoonshineTinyKoRulesPipeline(StiPipeline):
         match = catalog_match
         slm_ms = 0
 
-        if self._intent_resolver is not None:
+        slm_skip_reason = _slm_skip_reason(catalog_match, self._config.slm_min_catalog_confidence)
+        if self._intent_resolver is not None and slm_skip_reason is None:
             try:
                 decision = await self._intent_resolver.resolve(raw_text, self._catalog)
                 slm_ms = decision.slm_ms
@@ -172,6 +173,17 @@ class MoonshineTinyKoRulesPipeline(StiPipeline):
                         "message": str(exc),
                     }
                 )
+        elif self._intent_resolver is not None:
+            self._log(
+                {
+                    "event": "slm_skip",
+                    "correlation_id": self._opts.correlation_id if self._opts else "",
+                    "intent": catalog_match.intent,
+                    "confidence": catalog_match.confidence,
+                    "threshold": self._config.slm_min_catalog_confidence,
+                    "reason": slm_skip_reason,
+                }
+            )
 
         self._log(
             {
@@ -282,6 +294,14 @@ def _should_accept_slm_match(catalog_match: IntentMatch, slm_match: IntentMatch 
     if catalog_match.intent == "unknown":
         return False
     return slm_match.intent == catalog_match.intent
+
+
+def _slm_skip_reason(catalog_match: IntentMatch, min_catalog_confidence: float) -> str | None:
+    if catalog_match.intent == "unknown":
+        return "catalog_unknown"
+    if catalog_match.confidence >= min_catalog_confidence:
+        return "catalog_confident"
+    return None
 
 
 def _audio_bytes_for_ms(duration_ms: int) -> int:

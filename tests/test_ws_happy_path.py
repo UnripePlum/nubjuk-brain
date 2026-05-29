@@ -78,6 +78,16 @@ class BlockingFeedPipeline(MockPipeline):
         await asyncio.Event().wait()
 
 
+class NeverFinishPipeline(MockPipeline):
+    async def finish_session(self):
+        await asyncio.Event().wait()
+
+
+class DisconnectingWebSocket:
+    async def receive(self) -> dict:
+        return {"type": "websocket.disconnect", "code": 1006, "reason": ""}
+
+
 def test_ws_happy_path_returns_roll_right_and_closes() -> None:
     with TestClient(create_app(MockBrainConfig())) as client:
         with client.websocket_connect("/sti") as ws:
@@ -288,3 +298,20 @@ def test_ws_disconnect_during_processing_releases_lock() -> None:
             if time.monotonic() > deadline:
                 raise AssertionError("session lock was not released after processing disconnect")
             time.sleep(0.05)
+
+
+def test_finish_disconnect_race_releases_lock() -> None:
+    async def run() -> None:
+        manager = SessionManager(NeverFinishPipeline(MockBrainConfig()))
+        assert await manager.try_start(ws_server.SessionOpts("race", 5000), None)
+
+        result = await ws_server._finish_session_or_cancel_on_error(
+            DisconnectingWebSocket(),
+            manager,
+            frames_reported=0,
+        )
+
+        assert result is None
+        assert not manager.active
+
+    asyncio.run(run())
